@@ -32,6 +32,7 @@ Implemented now:
 - order lifecycle manager (submit/fill/protection validation)
 - prop risk gate (pre-trade limits + breach blocking)
 - account state machine + policy-aware account selection
+- persistent account governance store + health-aware eligibility checks
 
 Partially implemented:
 - cTrader Open API connect/auth + basic request flows
@@ -72,6 +73,7 @@ src/quantbridge/
     prop_guard.py
   accounts/
     account_policy.py
+    account_state_store.py
     account_state_machine.py
   router/
     account_selector.py
@@ -137,6 +139,14 @@ OpenAPI note:
 python scripts/run_account_orchestration_check.py --config configs/accounts_baseline.yaml --instrument XAUUSD
 ```
 
+Health/persistence simulation examples:
+- pause primary account and force backup selection:
+  `python scripts/run_account_orchestration_check.py --config configs/accounts_baseline.yaml --pause-account DEMO_A`
+- simulate missing credentials:
+  `python scripts/run_account_orchestration_check.py --config configs/accounts_baseline.yaml --missing-creds-account DEMO_A`
+- simulate max positions reached:
+  `python scripts/run_account_orchestration_check.py --config configs/accounts_baseline.yaml --open-positions DEMO_A:3`
+
 Auth help:
 - `docs/AUTH_SETUP.md`
 
@@ -158,7 +168,8 @@ Expected output:
 - Milestone C: reconciliation + restart safety (done)
 - Milestone D: runtime control + lifecycle safety (done baseline)
 - Milestone E: account orchestration baseline (done baseline)
-- Milestone F: multi-account scaling + fanout (in progress)
+- Milestone F: persistent governance + health-aware routing (done baseline)
+- Milestone G: multi-account scaling + fanout (in progress)
 
 ## Engineering Rules
 

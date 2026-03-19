@@ -177,6 +177,12 @@ class RuntimeControlLoop:
 
         connected, reconnect_attempts, last_error = self._ensure_connected()
         if not connected:
+            if self.account_state_machine is not None and self.account_id:
+                self.account_state_machine.set_health_state(
+                    account_id=self.account_id,
+                    health_state="unhealthy",
+                    reason=last_error or "connect_failed",
+                )
             return RuntimeStepResult(
                 timestamp=now,
                 connected=False,
@@ -192,7 +198,19 @@ class RuntimeControlLoop:
 
         try:
             broker_positions = self.broker.sync_positions(instrument=instrument)
+            if self.account_state_machine is not None and self.account_id:
+                self.account_state_machine.set_health_state(
+                    account_id=self.account_id,
+                    health_state="healthy",
+                    reason="runtime_sync_ok",
+                )
         except Exception as exc:
+            if self.account_state_machine is not None and self.account_id:
+                self.account_state_machine.set_health_state(
+                    account_id=self.account_id,
+                    health_state="unhealthy",
+                    reason=f"sync_failed:{exc}",
+                )
             return RuntimeStepResult(
                 timestamp=now,
                 connected=True,

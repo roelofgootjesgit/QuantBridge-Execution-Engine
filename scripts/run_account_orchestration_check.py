@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 from quantbridge.accounts.account_policy import AccountPolicy
 from quantbridge.accounts.account_state_machine import AccountStateMachine
-from quantbridge.router.account_selector import AccountSelector
+from quantbridge.router.account_selector import AccountRuntimeStatus, AccountSelector
 from quantbridge.risk.account_limits import AccountLimits
 
 
@@ -46,6 +46,8 @@ def parse_policies(config: dict) -> list[AccountPolicy]:
                 mode=str(raw.get("mode", "demo")),  # type: ignore[arg-type]
                 enabled=bool(raw.get("enabled", True)),
                 priority=int(raw.get("priority", 100)),
+                routing_mode=str(raw.get("routing_mode", "primary")),  # type: ignore[arg-type]
+                account_group=str(raw.get("account_group", "default")),
                 sizing_multiplier=float(raw.get("sizing_multiplier", 1.0)),
                 allowed_symbols=[str(s).upper() for s in (raw.get("allowed_symbols", []) or [])],
                 limits=limits,
@@ -61,6 +63,9 @@ def main() -> int:
     parser.add_argument("--account-state-file", default="state/account_states.json")
     parser.add_argument("--pause-account", default=None, help="Account id to set paused before selection")
     parser.add_argument("--unhealthy-account", action="append", default=[])
+    parser.add_argument("--runtime-paused-account", action="append", default=[])
+    parser.add_argument("--missing-creds-account", action="append", default=[])
+    parser.add_argument("--open-positions", action="append", default=[], help="Format ACCOUNT_ID:COUNT")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -71,10 +76,38 @@ def main() -> int:
         machine.pause(account_id=str(args.pause_account), reason="orchestration_cli_pause")
 
     selector = AccountSelector(state_machine=machine)
+    runtime_status: dict[str, AccountRuntimeStatus] = {}
+    for account_id in args.runtime_paused_account:
+        runtime_status[str(account_id)] = AccountRuntimeStatus(runtime_paused=True)
+    for account_id in args.missing_creds_account:
+        prev = runtime_status.get(str(account_id), AccountRuntimeStatus())
+        runtime_status[str(account_id)] = AccountRuntimeStatus(
+            broker_healthy=prev.broker_healthy,
+            runtime_paused=prev.runtime_paused,
+            has_credentials=False,
+            open_positions=prev.open_positions,
+        )
+    for raw in args.open_positions:
+        if ":" not in raw:
+            continue
+        account_id, count_text = raw.split(":", 1)
+        try:
+            count = int(count_text)
+        except ValueError:
+            continue
+        prev = runtime_status.get(str(account_id), AccountRuntimeStatus())
+        runtime_status[str(account_id)] = AccountRuntimeStatus(
+            broker_healthy=prev.broker_healthy,
+            runtime_paused=prev.runtime_paused,
+            has_credentials=prev.has_credentials,
+            open_positions=count,
+        )
+
     selection = selector.select(
         policies=policies,
         instrument=args.instrument,
         unhealthy_account_ids=args.unhealthy_account,
+        runtime_status_by_account=runtime_status,
     )
 
     if selection is None:

@@ -15,6 +15,14 @@ class AccountSelection:
     skipped: list[dict]
 
 
+@dataclass(frozen=True)
+class AccountRuntimeStatus:
+    broker_healthy: bool = True
+    runtime_paused: bool = False
+    has_credentials: bool = True
+    open_positions: int = 0
+
+
 class AccountSelector:
     """Choose an eligible account while respecting status and policy filters."""
 
@@ -27,8 +35,10 @@ class AccountSelector:
         policies: Iterable[AccountPolicy],
         instrument: str,
         unhealthy_account_ids: Iterable[str] | None = None,
+        runtime_status_by_account: dict[str, AccountRuntimeStatus] | None = None,
     ) -> AccountSelection | None:
         unhealthy = {str(account_id) for account_id in (unhealthy_account_ids or [])}
+        runtime_map = runtime_status_by_account or {}
         instrument_key = str(instrument).upper()
         skipped: list[dict] = []
 
@@ -38,11 +48,24 @@ class AccountSelector:
             if not policy.enabled:
                 skipped.append({"account_id": account_id, "reason": "policy_disabled"})
                 continue
+            runtime = runtime_map.get(account_id, AccountRuntimeStatus())
+            if not runtime.has_credentials:
+                skipped.append({"account_id": account_id, "reason": "missing_credentials"})
+                continue
             if account_id in unhealthy:
                 skipped.append({"account_id": account_id, "reason": "broker_unhealthy"})
                 continue
+            if not runtime.broker_healthy:
+                skipped.append({"account_id": account_id, "reason": "broker_unhealthy"})
+                continue
+            if runtime.runtime_paused:
+                skipped.append({"account_id": account_id, "reason": "runtime_paused"})
+                continue
             if policy.allowed_symbols and instrument_key not in {sym.upper() for sym in policy.allowed_symbols}:
                 skipped.append({"account_id": account_id, "reason": "symbol_not_allowed"})
+                continue
+            if runtime.open_positions >= policy.limits.max_concurrent_positions:
+                skipped.append({"account_id": account_id, "reason": "max_positions_reached"})
                 continue
             if not self.state_machine.is_eligible_for_trading(account_id=account_id, default_status=policy.mode):
                 state = self.state_machine.get_state(account_id=account_id, default_status=policy.mode)
@@ -50,7 +73,7 @@ class AccountSelector:
                 continue
             return AccountSelection(
                 account_id=account_id,
-                reason="eligible_highest_priority",
+                reason=f"eligible_{policy.routing_mode}",
                 selected_policy=policy,
                 skipped=skipped,
             )
