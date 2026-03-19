@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
 
 from quantbridge.execution.brokers.ctrader_broker import CTraderBroker
 from quantbridge.execution.runtime_control import RuntimeControlLoop, send_telegram_alert
+from quantbridge.accounts.account_state_machine import AccountStateMachine
 
 
 def load_env_files() -> None:
@@ -65,6 +66,8 @@ def main() -> int:
     parser.add_argument("--mode", choices=["mock", "openapi"], default=None)
     parser.add_argument("--registry-path", default="state/positions.json")
     parser.add_argument("--pause-file", default="state/trading.paused")
+    parser.add_argument("--account-state-file", default="state/account_states.json")
+    parser.add_argument("--account-status", choices=["demo", "challenge", "funded", "paused", "breached", "disabled"], default=None)
     parser.add_argument("--strategy", default="OCLW")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
     parser.add_argument("--retries", type=int, default=3)
@@ -94,10 +97,19 @@ def main() -> int:
         environment=str(broker_cfg.get("environment", "demo")),
         mode=mode,
     )
+    account_machine = AccountStateMachine(path=args.account_state_file)
+    if args.account_status is not None:
+        account_machine.set_state(
+            account_id=account_id,
+            status=args.account_status,  # type: ignore[arg-type]
+            reason="runtime_cli_override",
+        )
     runtime = RuntimeControlLoop(
         broker=broker,
         registry_path=args.registry_path,
         pause_file_path=args.pause_file,
+        account_id=account_id,
+        account_state_machine=account_machine,
         poll_interval_seconds=args.poll_seconds,
         reconnect_retries=args.retries,
         reconnect_backoff_seconds=args.backoff_seconds,

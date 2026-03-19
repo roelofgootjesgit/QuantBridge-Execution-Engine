@@ -30,13 +30,14 @@ Implemented now:
 - state validator + reconciliation actions
 - runtime control loop (continuous sync + failsafe pause)
 - order lifecycle manager (submit/fill/protection validation)
+- prop risk gate (pre-trade limits + breach blocking)
+- account state machine + policy-aware account selection
 
 Partially implemented:
 - cTrader Open API connect/auth + basic request flows
 
 Not yet complete:
-- multi-account routing engine
-- execution confirmation after each order fill
+- multi-account fanout runner
 - full monitoring dashboard and metrics backend
 
 ## Repository Structure
@@ -44,6 +45,7 @@ Not yet complete:
 ```text
 configs/
   ctrader_icmarkets_demo.yaml
+  accounts_baseline.yaml
 docs/
   ROADMAP.md
 scripts/
@@ -51,6 +53,7 @@ scripts/
   recover_execution_state.py
   run_runtime_control.py
   run_order_lifecycle_check.py
+  run_account_orchestration_check.py
 src/quantbridge/
   execution/
     broker_contract.py
@@ -63,6 +66,15 @@ src/quantbridge/
     clients/
       ctrader_mock_client.py
       ctrader_openapi_client.py
+  risk/
+    account_limits.py
+    risk_engine.py
+    prop_guard.py
+  accounts/
+    account_policy.py
+    account_state_machine.py
+  router/
+    account_selector.py
 ```
 
 ## Quick Start
@@ -109,8 +121,21 @@ Optional Telegram alerts:
 python scripts/run_order_lifecycle_check.py --config configs/ctrader_icmarkets_demo.yaml --mode mock --direction BUY --sl 2495 --tp 2510 --close-after
 ```
 
+Optional risk-gate flags (recommended for prop style checks):
+- `--daily-dd-limit-pct 5`
+- `--total-dd-limit-pct 10`
+- `--max-open-risk-pct 3`
+- `--max-risk-per-trade-pct 1`
+- `--max-concurrent-positions 3`
+
 OpenAPI note:
 - if your broker/account rejects SL/TP values on market submit, run lifecycle check without `--sl/--tp` and keep runtime failsafe active.
+
+8) Run account-orchestration selection check:
+
+```bash
+python scripts/run_account_orchestration_check.py --config configs/accounts_baseline.yaml --instrument XAUUSD
+```
 
 Auth help:
 - `docs/AUTH_SETUP.md`
@@ -129,10 +154,11 @@ Expected output:
 ## Milestones
 
 - Milestone A: mock abstraction (done)
-- Milestone B: real cTrader demo execution (in progress)
-- Milestone C: reconciliation + restart safety
-- Milestone D: prop-risk above broker layer
-- Milestone E: multi-account scaling
+- Milestone B: real cTrader demo execution (done baseline)
+- Milestone C: reconciliation + restart safety (done)
+- Milestone D: runtime control + lifecycle safety (done baseline)
+- Milestone E: account orchestration baseline (done baseline)
+- Milestone F: multi-account scaling + fanout (in progress)
 
 ## Engineering Rules
 

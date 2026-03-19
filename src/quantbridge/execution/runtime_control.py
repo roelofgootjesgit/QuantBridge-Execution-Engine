@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Callable, Optional
 from urllib import parse, request
 
+from quantbridge.accounts.account_state_machine import AccountStateMachine
 from quantbridge.execution.broker_contract import BrokerContract
 from quantbridge.execution.recovery import PositionRegistry
 from quantbridge.execution.state_validator import ReconcileActions, StateValidator
@@ -58,6 +59,8 @@ class RuntimeControlLoop:
         reconnect_backoff_seconds: float = 2.0,
         mismatch_streak_failsafe: int = 3,
         close_on_failsafe: bool = True,
+        account_id: str = "",
+        account_state_machine: Optional[AccountStateMachine] = None,
         alert_callback: Optional[Callable[[str], None]] = None,
     ) -> None:
         self.broker = broker
@@ -68,6 +71,8 @@ class RuntimeControlLoop:
         self.reconnect_backoff_seconds = max(0.0, float(reconnect_backoff_seconds))
         self.mismatch_streak_failsafe = max(1, int(mismatch_streak_failsafe))
         self.close_on_failsafe = bool(close_on_failsafe)
+        self.account_id = str(account_id or "")
+        self.account_state_machine = account_state_machine
         self.validator = StateValidator()
         self.alert_callback = alert_callback
         self._mismatch_streak = 0
@@ -130,6 +135,8 @@ class RuntimeControlLoop:
             self._alert(f"[runtime] failsafe close_all_positions closed={closed} reason={reason}")
         self._paused = True
         self._write_pause_marker(reason=reason)
+        if self.account_state_machine is not None and self.account_id:
+            self.account_state_machine.pause(account_id=self.account_id, reason=reason)
         self._alert(f"[runtime] trading paused reason={reason}")
 
     def trigger_external_failsafe(self, reason: str, instrument: Optional[str] = None) -> None:
@@ -138,6 +145,22 @@ class RuntimeControlLoop:
 
     def run_step(self, instrument: Optional[str] = None, strategy: str = "unknown") -> RuntimeStepResult:
         now = _utc_now_iso()
+        if self.account_state_machine is not None and self.account_id:
+            pause_reason = self.account_state_machine.get_pause_reason(self.account_id)
+            if pause_reason is not None:
+                self._paused = True
+                return RuntimeStepResult(
+                    timestamp=now,
+                    connected=self.broker.is_connected,
+                    reconnect_attempts=0,
+                    synced_positions=0,
+                    mismatch_count=0,
+                    mismatch_streak=self._mismatch_streak,
+                    failsafe_triggered=False,
+                    paused=True,
+                    reconciliation={"add": [], "remove": [], "update": []},
+                    last_error=f"account_state_blocked:{pause_reason}",
+                )
         if self._paused:
             return RuntimeStepResult(
                 timestamp=now,

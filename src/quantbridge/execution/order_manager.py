@@ -7,6 +7,7 @@ from typing import Callable, Optional
 
 from quantbridge.execution.broker_contract import BrokerContract
 from quantbridge.execution.models import OrderResult, Position
+from quantbridge.risk.risk_engine import RiskDecision, TradeIntent
 
 
 def _utc_now_iso() -> str:
@@ -24,6 +25,7 @@ class OrderLifecycleResult:
     filled_units: Optional[float] = None
     message: str = ""
     error: Optional[str] = None
+    risk_decision: Optional[dict] = None
     timestamp: str = field(default_factory=_utc_now_iso)
 
 
@@ -37,12 +39,14 @@ class OrderManager:
         default_poll_interval_seconds: float = 1.0,
         protection_tolerance: float = 1e-6,
         failsafe_callback: Optional[Callable[[str], None]] = None,
+        risk_check_callback: Optional[Callable[[TradeIntent], RiskDecision]] = None,
     ) -> None:
         self.broker = broker
         self.default_fill_timeout_seconds = max(1.0, float(default_fill_timeout_seconds))
         self.default_poll_interval_seconds = max(0.2, float(default_poll_interval_seconds))
         self.protection_tolerance = abs(float(protection_tolerance))
         self.failsafe_callback = failsafe_callback
+        self.risk_check_callback = risk_check_callback
 
     def _trigger_failsafe(self, reason: str) -> None:
         if self.failsafe_callback is None:
@@ -151,7 +155,30 @@ class OrderManager:
         comment: str = "",
         client_order_ref: str = "",
         enforce_protection: bool = True,
+        risk_per_trade_pct: Optional[float] = None,
     ) -> OrderLifecycleResult:
+        risk_decision_dict: Optional[dict] = None
+        if self.risk_check_callback is not None:
+            intent = TradeIntent(
+                instrument=str(instrument or ""),
+                direction=direction,
+                units=float(units),
+                risk_per_trade_pct=risk_per_trade_pct,
+            )
+            decision = self.risk_check_callback(intent)
+            risk_decision_dict = decision.__dict__.copy()
+            if not decision.allowed:
+                if decision.trigger_failsafe:
+                    self._trigger_failsafe(f"risk_blocked:{decision.code}")
+                return OrderLifecycleResult(
+                    success=False,
+                    status="risk_blocked",
+                    message=decision.reason,
+                    error=decision.code,
+                    risk_decision=risk_decision_dict,
+                )
+            units = float(decision.adjusted_units)
+
         order = self.place_order(
             instrument=instrument,
             direction=direction,
@@ -170,6 +197,7 @@ class OrderManager:
                 trade_id=order.trade_id,
                 message=order.message or "order_rejected",
                 error=order.error_code or "order_rejected",
+                risk_decision=risk_decision_dict,
             )
 
         fill_ok, filled_position, fill_error = self.confirm_fill(
@@ -187,6 +215,7 @@ class OrderManager:
                 fill_confirmed=False,
                 message=fill_error or "fill_not_confirmed",
                 error=fill_error or "fill_not_confirmed",
+                risk_decision=risk_decision_dict,
             )
 
         if not enforce_protection:
@@ -199,6 +228,7 @@ class OrderManager:
                 protection_confirmed=False,
                 filled_units=filled_position.units if filled_position else None,
                 message="order_filled_without_protection_check",
+                risk_decision=risk_decision_dict,
             )
 
         protection_ok, protected_position, protection_error = self.ensure_protection(
@@ -219,6 +249,7 @@ class OrderManager:
                 filled_units=filled_position.units if filled_position else None,
                 message=protection_error or "protection_not_confirmed",
                 error=protection_error or "protection_not_confirmed",
+                risk_decision=risk_decision_dict,
             )
 
         return OrderLifecycleResult(
@@ -230,4 +261,5 @@ class OrderManager:
             protection_confirmed=True,
             filled_units=protected_position.units if protected_position else None,
             message="order_validated",
+            risk_decision=risk_decision_dict,
         )
