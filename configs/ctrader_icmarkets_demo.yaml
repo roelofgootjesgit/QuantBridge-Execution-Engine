@@ -14,6 +14,6 @@ risk:
   risk_percent: 1.0
 
 execution:
-  units: 1.0
+  units: 100.0
   stop_loss_distance: 5.0
   take_profit_distance: 10.0

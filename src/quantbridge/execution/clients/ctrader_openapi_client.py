@@ -134,12 +134,28 @@ class CTraderOpenApiClient:
             responseTimeoutInSeconds=self.request_timeout_seconds,
         )
         response = self._to_blocking(deferred, timeout=self.request_timeout_seconds + 1.0)
+        response = self._extract_payload(response)
         logger.info(
             "ctrader.response action=recv request_id=%s payload=%s",
             request_id,
             type(response).__name__,
         )
         return response
+
+    def _extract_payload(self, message):
+        # OpenApiPy may return a ProtoMessage wrapper; normalize to typed payload.
+        try:
+            payload_type = getattr(message, "payloadType", None)
+            payload = getattr(message, "payload", None)
+            if payload_type is not None and payload is not None:
+                from ctrader_open_api import Protobuf
+
+                extracted = Protobuf.extract(message)
+                if extracted is not None:
+                    return extracted
+        except Exception:
+            pass
+        return message
 
     def _on_message(self, *args) -> None:
         # SDK callback signature differs by version:
@@ -148,7 +164,7 @@ class CTraderOpenApiClient:
         # Normalize both to the payload message object.
         if not args:
             return
-        message = args[-1]
+        message = self._extract_payload(args[-1])
         # Spot updates come asynchronously as events.
         payload_name = type(message).__name__
         if payload_name != "ProtoOASpotEvent":

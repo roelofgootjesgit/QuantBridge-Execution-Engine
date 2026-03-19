@@ -19,6 +19,7 @@ from quantbridge.execution.brokers.ctrader_broker import CTraderBroker
 
 def load_local_env() -> None:
     env_candidates = [ROOT / ".env", ROOT / "local.env"]
+    preexisting_env_keys = set(os.environ.keys())
     for env_path in env_candidates:
         if not env_path.exists():
             continue
@@ -29,9 +30,15 @@ def load_local_env() -> None:
             key, value = line.split("=", 1)
             key = key.strip()
             value = value.strip()
-            if key and key not in os.environ:
+            if not key:
+                continue
+            if value == "":
+                continue
+            if key in preexisting_env_keys:
+                continue
+            # local.env is loaded after .env and can override file defaults.
+            if env_path.name == "local.env" or key not in os.environ:
                 os.environ[key] = value
-        break
 
 
 def load_config(path: str) -> dict:
@@ -122,8 +129,11 @@ def main() -> int:
     report["price"] = True
 
     ask = float(px["ask"])
-    sl = ask - float(execution_cfg.get("stop_loss_distance", 5.0))
-    tp = ask + float(execution_cfg.get("take_profit_distance", 10.0))
+    sl = None
+    tp = None
+    if effective_mode == "mock":
+        sl = ask - float(execution_cfg.get("stop_loss_distance", 5.0))
+        tp = ask + float(execution_cfg.get("take_profit_distance", 10.0))
 
     order = broker.submit_market_order(
         direction="BUY",
@@ -142,7 +152,10 @@ def main() -> int:
     synced = broker.sync_positions()
     report["sync_positions"] = any(p.trade_id == order.trade_id for p in synced)
 
-    report["close_order"] = broker.close_trade(order.trade_id)
+    report["close_order"] = broker.close_trade(
+        order.trade_id,
+        units=float(execution_cfg.get("units", 1.0)),
+    )
     print(json.dumps(report, indent=2))
     checks = [report["connect"], report["health"], report["price"], report["place_order"], report["sync_positions"], report["close_order"]]
     return 0 if all(checks) else 4

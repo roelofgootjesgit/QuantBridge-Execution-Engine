@@ -61,7 +61,7 @@ src/quantbridge/
 ## Quick Start
 
 1) Create and activate a virtual environment.
-2) Fill `.env` from `.env.example`.
+2) Fill `.env` from `.env.example`, then keep machine-specific secrets in `local.env` (preferred at runtime).
 3) Run smoke test in mock mode:
 
 ```bash
