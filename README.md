@@ -222,6 +222,13 @@ python scripts/summarize_observability.py --events-file logs/events.jsonl --sinc
 15) VPS scheduler artifacts:
 - cron example: `ops/vps/quantbridge_paper.cron`
 - systemd service example: `ops/vps/quantbridge-paper.service`
+- install helper: `ops/vps/install_paper_service.sh`
+
+Install service on VPS:
+
+```bash
+sudo bash ops/vps/install_paper_service.sh
+```
 
 Auth help:
 - `docs/AUTH_SETUP.md`
