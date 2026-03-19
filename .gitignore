@@ -4,5 +4,6 @@ __pycache__/
 .env
 local.env
 logs/
+state/
 dist/
 build/

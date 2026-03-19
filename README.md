@@ -74,6 +74,12 @@ python scripts/ctrader_smoke.py --config configs/ctrader_icmarkets_demo.yaml
 python scripts/ctrader_smoke.py --config configs/ctrader_icmarkets_demo.yaml --mode openapi
 ```
 
+5) Run startup reconnect + state recovery before launching bots:
+
+```bash
+python scripts/recover_execution_state.py --config configs/ctrader_icmarkets_demo.yaml --mode openapi --registry-path state/positions.json --strategy OCLW
+```
+
 Auth help:
 - `docs/AUTH_SETUP.md`
 
