@@ -16,6 +16,7 @@ if str(SRC) not in sys.path:
 from quantbridge.execution.brokers.ctrader_broker import CTraderBroker
 from quantbridge.execution.runtime_control import RuntimeControlLoop, send_telegram_alert
 from quantbridge.accounts.account_state_machine import AccountStateMachine
+from quantbridge.ops.observability import JsonlEventSink
 
 
 def load_env_files() -> None:
@@ -67,6 +68,7 @@ def main() -> int:
     parser.add_argument("--registry-path", default="state/positions.json")
     parser.add_argument("--pause-file", default="state/trading.paused")
     parser.add_argument("--account-state-file", default="state/account_states.json")
+    parser.add_argument("--events-file", default="")
     parser.add_argument("--account-status", choices=["demo", "challenge", "funded", "paused", "breached", "disabled"], default=None)
     parser.add_argument("--strategy", default="OCLW")
     parser.add_argument("--poll-seconds", type=float, default=5.0)
@@ -98,6 +100,7 @@ def main() -> int:
         mode=mode,
     )
     account_machine = AccountStateMachine(path=args.account_state_file)
+    event_sink = JsonlEventSink(path=args.events_file, source="runtime") if args.events_file else None
     if args.account_status is not None:
         account_machine.set_state(
             account_id=account_id,
@@ -116,6 +119,7 @@ def main() -> int:
         mismatch_streak_failsafe=args.failsafe_streak,
         close_on_failsafe=not args.no_close_on_failsafe,
         alert_callback=build_alert_callback(),
+        event_callback=(event_sink.emit if event_sink else None),
     )
 
     history = runtime.run_forever(

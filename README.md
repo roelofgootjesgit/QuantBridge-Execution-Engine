@@ -34,6 +34,7 @@ Implemented now:
 - account state machine + policy-aware account selection
 - persistent account governance store + health-aware eligibility checks
 - multi-account execution planning (single/primary-backup/fanout)
+- structured observability events (JSONL) + summary reporting
 
 Partially implemented:
 - cTrader Open API connect/auth + basic request flows
@@ -57,6 +58,7 @@ scripts/
   run_order_lifecycle_check.py
   run_account_orchestration_check.py
   run_multi_account_execution_check.py
+  summarize_observability.py
 src/quantbridge/
   execution/
     broker_contract.py
@@ -81,6 +83,8 @@ src/quantbridge/
     account_selector.py
     execution_plan_builder.py
     execution_orchestrator.py
+  ops/
+    observability.py
 ```
 
 ## Quick Start
@@ -160,6 +164,13 @@ python scripts/run_multi_account_execution_check.py --config configs/accounts_ba
 Other routing modes:
 - `--routing-mode single`
 - `--routing-mode fanout --max-fanout-accounts 2`
+- `--events-file logs/events.jsonl`
+
+Observability summary:
+
+```bash
+python scripts/summarize_observability.py --events-file logs/events.jsonl
+```
 
 10) Run full mock regression suite (all core layers):
 
@@ -198,7 +209,7 @@ Expected output:
 - Milestone E: account orchestration baseline (done baseline)
 - Milestone F: persistent governance + health-aware routing (done baseline)
 - Milestone G: multi-account routing + execution planning (done baseline)
-- Milestone H: multi-account scaling + production observability (in progress)
+- Milestone H: multi-account scaling + production observability (in progress, observability baseline done)
 
 ## Engineering Rules
 

@@ -62,6 +62,7 @@ class RuntimeControlLoop:
         account_id: str = "",
         account_state_machine: Optional[AccountStateMachine] = None,
         alert_callback: Optional[Callable[[str], None]] = None,
+        event_callback: Optional[Callable[[str, dict], None]] = None,
     ) -> None:
         self.broker = broker
         self.registry = PositionRegistry(registry_path)
@@ -75,6 +76,7 @@ class RuntimeControlLoop:
         self.account_state_machine = account_state_machine
         self.validator = StateValidator()
         self.alert_callback = alert_callback
+        self.event_callback = event_callback
         self._mismatch_streak = 0
         self._paused = False
 
@@ -87,6 +89,14 @@ class RuntimeControlLoop:
             return
         try:
             self.alert_callback(text)
+        except Exception:
+            pass
+
+    def _emit_event(self, event_type: str, payload: dict) -> None:
+        if self.event_callback is None:
+            return
+        try:
+            self.event_callback(event_type, payload)
         except Exception:
             pass
 
@@ -133,11 +143,19 @@ class RuntimeControlLoop:
         if self.close_on_failsafe:
             closed = self._close_all_positions(instrument=instrument)
             self._alert(f"[runtime] failsafe close_all_positions closed={closed} reason={reason}")
+            self._emit_event(
+                "runtime.failsafe.close_all",
+                {"account_id": self.account_id, "instrument": instrument or "", "closed_positions": closed, "reason": reason},
+            )
         self._paused = True
         self._write_pause_marker(reason=reason)
         if self.account_state_machine is not None and self.account_id:
             self.account_state_machine.pause(account_id=self.account_id, reason=reason)
         self._alert(f"[runtime] trading paused reason={reason}")
+        self._emit_event(
+            "runtime.failsafe.paused",
+            {"account_id": self.account_id, "instrument": instrument or "", "reason": reason},
+        )
 
     def trigger_external_failsafe(self, reason: str, instrument: Optional[str] = None) -> None:
         """Allow order lifecycle layer to trigger the same runtime failsafe."""
@@ -282,6 +300,21 @@ class RuntimeControlLoop:
             iterations += 1
             step = self.run_step(instrument=instrument, strategy=strategy)
             history.append(step)
+            self._emit_event(
+                "runtime.step",
+                {
+                    "account_id": self.account_id,
+                    "instrument": instrument or "",
+                    "connected": step.connected,
+                    "reconnect_attempts": step.reconnect_attempts,
+                    "synced_positions": step.synced_positions,
+                    "mismatch_count": step.mismatch_count,
+                    "mismatch_streak": step.mismatch_streak,
+                    "failsafe_triggered": step.failsafe_triggered,
+                    "paused": step.paused,
+                    "last_error": step.last_error,
+                },
+            )
             if self._paused:
                 break
             if max_iterations is not None and iterations >= max_iterations:

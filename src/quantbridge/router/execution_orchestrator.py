@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Callable
+from typing import Callable, Optional
 
 from quantbridge.execution.order_manager import OrderLifecycleResult
 from quantbridge.router.execution_plan_builder import ExecutionPlanBuilder, TradeRequest
@@ -46,9 +46,19 @@ class MultiAccountExecutionOrchestrator:
         self,
         plan_builder: ExecutionPlanBuilder,
         order_manager_factory: Callable[[str], object],
+        event_callback: Optional[Callable[[str, dict], None]] = None,
     ) -> None:
         self.plan_builder = plan_builder
         self.order_manager_factory = order_manager_factory
+        self.event_callback = event_callback
+
+    def _emit_event(self, event_type: str, payload: dict) -> None:
+        if self.event_callback is None:
+            return
+        try:
+            self.event_callback(event_type, payload)
+        except Exception:
+            pass
 
     def _to_result(self, account_id: str, role: str, lifecycle: OrderLifecycleResult) -> AccountExecutionResult:
         return AccountExecutionResult(
@@ -81,6 +91,17 @@ class MultiAccountExecutionOrchestrator:
         )
 
         results: list[AccountExecutionResult] = []
+        self._emit_event(
+            "execution.plan.built",
+            {
+                "routing_mode": plan.routing_mode,
+                "instrument": plan.instrument,
+                "direction": plan.direction,
+                "planned_accounts": [item.account_id for item in plan.items],
+                "planned_count": len(plan.items),
+                "skipped_count": len(plan.skipped),
+            },
+        )
         if not plan.items:
             return AggregateExecutionResult(
                 routing_mode=plan.routing_mode,
@@ -105,6 +126,17 @@ class MultiAccountExecutionOrchestrator:
                 enforce_protection=(request.sl is not None or request.tp is not None),
             )
             results.append(self._to_result(item.account_id, item.role, lifecycle))
+            self._emit_event(
+                "execution.account.result",
+                {
+                    "account_id": item.account_id,
+                    "role": item.role,
+                    "attempted": True,
+                    "success": bool(lifecycle.success),
+                    "status": lifecycle.status,
+                    "error": lifecycle.error,
+                },
+            )
 
         elif plan.routing_mode == "primary_backup":
             success_seen = False
@@ -120,6 +152,17 @@ class MultiAccountExecutionOrchestrator:
                             message="previous_account_succeeded",
                         )
                     )
+                    self._emit_event(
+                        "execution.account.result",
+                        {
+                            "account_id": item.account_id,
+                            "role": item.role,
+                            "attempted": False,
+                            "success": False,
+                            "status": "not_attempted_after_success",
+                            "error": None,
+                        },
+                    )
                     continue
                 manager = self.order_manager_factory(item.account_id)
                 lifecycle = manager.place_and_validate(
@@ -134,6 +177,17 @@ class MultiAccountExecutionOrchestrator:
                 )
                 result = self._to_result(item.account_id, item.role, lifecycle)
                 results.append(result)
+                self._emit_event(
+                    "execution.account.result",
+                    {
+                        "account_id": item.account_id,
+                        "role": item.role,
+                        "attempted": True,
+                        "success": bool(result.success),
+                        "status": result.status,
+                        "error": result.error,
+                    },
+                )
                 if result.success:
                     success_seen = True
 
@@ -151,13 +205,24 @@ class MultiAccountExecutionOrchestrator:
                     enforce_protection=(request.sl is not None or request.tp is not None),
                 )
                 results.append(self._to_result(item.account_id, item.role, lifecycle))
+                self._emit_event(
+                    "execution.account.result",
+                    {
+                        "account_id": item.account_id,
+                        "role": item.role,
+                        "attempted": True,
+                        "success": bool(lifecycle.success),
+                        "status": lifecycle.status,
+                        "error": lifecycle.error,
+                    },
+                )
 
         any_success = any(result.success for result in results)
         attempted_results = [result for result in results if result.attempted]
         all_success = bool(attempted_results) and all(result.success for result in attempted_results)
         overall_success = any_success if plan.routing_mode in {"primary_backup", "single"} else all_success
 
-        return AggregateExecutionResult(
+        aggregate = AggregateExecutionResult(
             routing_mode=plan.routing_mode,
             overall_success=overall_success,
             any_success=any_success,
@@ -165,4 +230,16 @@ class MultiAccountExecutionOrchestrator:
             results=results,
             skipped=plan.skipped,
         )
+        self._emit_event(
+            "execution.aggregate.result",
+            {
+                "routing_mode": aggregate.routing_mode,
+                "overall_success": aggregate.overall_success,
+                "any_success": aggregate.any_success,
+                "all_success": aggregate.all_success,
+                "result_count": len(aggregate.results),
+                "skipped_count": len(aggregate.skipped),
+            },
+        )
+        return aggregate
 

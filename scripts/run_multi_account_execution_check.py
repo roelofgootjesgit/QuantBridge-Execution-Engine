@@ -20,6 +20,7 @@ from quantbridge.execution.order_manager import OrderManager
 from quantbridge.router.account_selector import AccountRuntimeStatus, AccountSelector
 from quantbridge.router.execution_orchestrator import MultiAccountExecutionOrchestrator
 from quantbridge.router.execution_plan_builder import ExecutionPlanBuilder, TradeRequest
+from quantbridge.ops.observability import JsonlEventSink
 from quantbridge.risk.account_limits import AccountLimits
 from quantbridge.risk.prop_guard import PropGuard
 from quantbridge.risk.risk_engine import RiskSnapshot, TradeIntent
@@ -80,6 +81,7 @@ def main() -> int:
     parser.add_argument("--missing-creds-account", action="append", default=[])
     parser.add_argument("--open-positions", action="append", default=[], help="Format ACCOUNT_ID:COUNT")
     parser.add_argument("--account-state-file", default="state/account_states.json")
+    parser.add_argument("--events-file", default="")
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -90,6 +92,7 @@ def main() -> int:
 
     selector = AccountSelector(state_machine=account_machine)
     plan_builder = ExecutionPlanBuilder(selector=selector)
+    event_sink = JsonlEventSink(path=args.events_file, source="execution") if args.events_file else None
 
     runtime_status: dict[str, AccountRuntimeStatus] = {}
     for account_id in args.runtime_paused_account:
@@ -154,6 +157,7 @@ def main() -> int:
     orchestrator = MultiAccountExecutionOrchestrator(
         plan_builder=plan_builder,
         order_manager_factory=lambda account_id: managers[str(account_id)],
+        event_callback=(event_sink.emit if event_sink else None),
     )
     request = TradeRequest(
         instrument=args.instrument.upper(),
