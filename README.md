@@ -161,6 +161,20 @@ Other routing modes:
 - `--routing-mode single`
 - `--routing-mode fanout --max-fanout-accounts 2`
 
+10) Run full mock regression suite (all core layers):
+
+```bash
+python scripts/run_regression_suite.py
+```
+
+This runs:
+- smoke
+- recovery
+- runtime loop (single iteration)
+- order lifecycle check
+- account orchestration check
+- multi-account execution checks (single / primary_backup / fanout)
+
 Auth help:
 - `docs/AUTH_SETUP.md`
 
