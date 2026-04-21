@@ -65,6 +65,9 @@ class JsonlEventSink:
         trade_id = payload.get("trade_id")
         if isinstance(trade_id, str) and trade_id.strip():
             event["trade_id"] = trade_id
+        decision_cycle_id = payload.get("decision_cycle_id")
+        if isinstance(decision_cycle_id, str) and decision_cycle_id.strip():
+            event["decision_cycle_id"] = decision_cycle_id.strip()
         if isinstance(position_id, str) and position_id.strip():
             event["position_id"] = position_id
         if isinstance(account_id, str) and account_id.strip():
