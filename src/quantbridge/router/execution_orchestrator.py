@@ -130,6 +130,8 @@ class MultiAccountExecutionOrchestrator:
         }
         q_tid = self._quantlog_trade_id(request, lc)
         q_dc = self._quantlog_decision_cycle_id(request)
+        if not q_dc:
+            q_dc = f"dc_bridge_{uuid4().hex[:16]}"
         if lc.status != "risk_blocked" and (lc.order_id or lc.order_ref) and q_tid:
             sub_payload = {
                 **base,
@@ -137,9 +139,8 @@ class MultiAccountExecutionOrchestrator:
                 "side": request.direction,
                 "volume": float(request.units),
                 "trade_id": q_tid,
+                "decision_cycle_id": q_dc,
             }
-            if q_dc:
-                sub_payload["decision_cycle_id"] = q_dc
             self._emit_event("order_submitted", sub_payload)
         if lc.fill_confirmed and lc.trade_id:
             fill_payload = {
@@ -151,9 +152,8 @@ class MultiAccountExecutionOrchestrator:
                 "slippage": lc.slippage,
                 "fill_latency_ms": lc.fill_latency_ms,
                 "spread_at_fill": lc.spread_at_fill,
+                "decision_cycle_id": q_dc,
             }
-            if q_dc:
-                fill_payload["decision_cycle_id"] = q_dc
             self._emit_event("order_filled", fill_payload)
             oref = lc.order_ref or str(lc.order_id or "")
             if q_tid and oref:
@@ -162,9 +162,8 @@ class MultiAccountExecutionOrchestrator:
                     "trade_id": q_tid,
                     "order_ref": oref,
                     "direction": self._direction_to_trade_executed(request.direction),
+                    "decision_cycle_id": q_dc,
                 }
-                if q_dc:
-                    te_payload["decision_cycle_id"] = q_dc
                 self._emit_event("trade_executed", te_payload)
 
     def execute(
